@@ -3,7 +3,6 @@ from datetime import datetime
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
-# Exact OpenMetadata Hierarchy
 SERVICE  = "medallion_db"
 DATABASE = "default"
 SCHEMA   = "medallion-demo"
@@ -22,27 +21,25 @@ with DAG(
 ) as dag:
 
     for track in ["district", "card", "disp"]:
-        # Exact FQNs matching OpenMetadata UI URL format
         bronze_fqn = f'{FQN_PREFIX}."bronze/{track}/{track}_bronze.parquet"'
         silver_fqn = f'{FQN_PREFIX}."silver/{track}/{track}_silver.parquet"'
         gold_fqn   = f'{FQN_PREFIX}."gold/{track}/{track}_gold.parquet"'
 
-        # Task 1: Bronze -> Silver
+        # Note: inlets and outlets MUST be a list [...]
         b2s_task = PythonOperator(
             task_id=f"transform_{track}_bronze_to_silver",
             python_callable=execute_transform,
             op_args=[track, "Bronze to Silver"],
-            inlets={"tables": [bronze_fqn]},
-            outlets={"tables": [silver_fqn]},
+            inlets=[{"tables": [bronze_fqn]}],
+            outlets=[{"tables": [silver_fqn]}],
         )
 
-        # Task 2: Silver -> Gold
         s2g_task = PythonOperator(
             task_id=f"transform_{track}_silver_to_gold",
             python_callable=execute_transform,
             op_args=[track, "Silver to Gold"],
-            inlets={"tables": [silver_fqn]},
-            outlets={"tables": [gold_fqn]},
+            inlets=[{"tables": [silver_fqn]}],
+            outlets=[{"tables": [gold_fqn]}],
         )
 
         b2s_task >> s2g_task
