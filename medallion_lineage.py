@@ -8,7 +8,6 @@ SERVICE  = "medallion_db"
 DATABASE = "default"
 SCHEMA   = "medallion-demo"
 
-# Base FQN prefix
 FQN_PREFIX = f"{SERVICE}.{DATABASE}.{SCHEMA}"
 
 def execute_transform(track, stage):
@@ -23,7 +22,7 @@ with DAG(
 ) as dag:
 
     for track in ["district", "card", "disp"]:
-        # Match exact S3 key paths extracted by OpenMetadata DataLake ingestion
+        # Exact FQNs matching OpenMetadata UI URL format
         bronze_fqn = f'{FQN_PREFIX}."bronze/{track}/{track}_bronze.parquet"'
         silver_fqn = f'{FQN_PREFIX}."silver/{track}/{track}_silver.parquet"'
         gold_fqn   = f'{FQN_PREFIX}."gold/{track}/{track}_gold.parquet"'
@@ -33,8 +32,8 @@ with DAG(
             task_id=f"transform_{track}_bronze_to_silver",
             python_callable=execute_transform,
             op_args=[track, "Bronze to Silver"],
-            inlets=[bronze_fqn],
-            outlets=[silver_fqn],
+            inlets={"tables": [bronze_fqn]},
+            outlets={"tables": [silver_fqn]},
         )
 
         # Task 2: Silver -> Gold
@@ -42,8 +41,8 @@ with DAG(
             task_id=f"transform_{track}_silver_to_gold",
             python_callable=execute_transform,
             op_args=[track, "Silver to Gold"],
-            inlets=[silver_fqn],
-            outlets=[gold_fqn],
+            inlets={"tables": [silver_fqn]},
+            outlets={"tables": [gold_fqn]},
         )
 
         b2s_task >> s2g_task
