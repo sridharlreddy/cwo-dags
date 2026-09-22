@@ -1,7 +1,19 @@
-# medallion_sql_lineage.py
 from datetime import datetime
 from airflow import DAG
-from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
+from airflow.models.baseoperator import BaseOperator
+
+# Custom operator that holds a SQL string for OpenMetadata lineage parsing
+# without making any database connections in Airflow.
+class DummySQLOperator(BaseOperator):
+    template_fields = ('sql',)
+
+    def __init__(self, sql: str, **kwargs):
+        super().__init__(**kwargs)
+        self.sql = sql
+
+    def execute(self, context):
+        self.log.info("Executing Dummy SQL operator for OpenMetadata lineage extraction...")
+        return None
 
 with DAG(
     dag_id="medallion_sql_lineage_pipeline",
@@ -16,35 +28,22 @@ with DAG(
         silver_tbl = f'medallion_db.default."medallion-demo"."silver/{track}/{track}_silver.parquet"'
         gold_tbl   = f'medallion_db.default."medallion-demo"."gold/{track}/{track}_gold.parquet"'
 
-        # 1. Initialize dummy tables in SQLite
-        init_sqlite = SQLExecuteQueryOperator(
-            task_id=f"init_sqlite_{track}",
-            conn_id="sqlite_default",
-            sql=f"""
-                CREATE TABLE IF NOT EXISTS {bronze_tbl} (id INT);
-                CREATE TABLE IF NOT EXISTS {silver_tbl} (id INT);
-                CREATE TABLE IF NOT EXISTS {gold_tbl} (id INT);
-            """,
-        )
-
-        # 2. Bronze -> Silver (Parsed automatically by OpenMetadata sqlglot)
-        b2s_task = SQLExecuteQueryOperator(
+        # Bronze -> Silver
+        b2s_task = DummySQLOperator(
             task_id=f"transform_{track}_bronze_to_silver",
-            conn_id="sqlite_default",
             sql=f"""
-                INSERT INTO {silver_tbl} 
+                CREATE TABLE {silver_tbl} AS 
                 SELECT * FROM {bronze_tbl};
             """,
         )
 
-        # 3. Silver -> Gold (Parsed automatically by OpenMetadata sqlglot)
-        s2g_task = SQLExecuteQueryOperator(
+        # Silver -> Gold
+        s2g_task = DummySQLOperator(
             task_id=f"transform_{track}_silver_to_gold",
-            conn_id="sqlite_default",
             sql=f"""
-                INSERT INTO {gold_tbl} 
+                CREATE TABLE {gold_tbl} AS 
                 SELECT * FROM {silver_tbl};
             """,
         )
 
-        init_sqlite >> b2s_task >> s2g_task
+        b2s_task >> s2g_task
