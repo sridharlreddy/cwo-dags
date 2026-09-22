@@ -2,17 +2,18 @@ from datetime import datetime
 from airflow import DAG
 from airflow.models.baseoperator import BaseOperator
 
-# Custom operator that holds a SQL string for OpenMetadata lineage parsing
-# without making any database connections in Airflow.
-class DummySQLOperator(BaseOperator):
+# Custom operator named SQLExecuteQueryOperator that overrides execution to be a no-op
+# while allowing OpenMetadata to extract taskType='SQLExecuteQueryOperator' and taskSQL.
+class SQLExecuteQueryOperator(BaseOperator):
     template_fields = ('sql',)
 
-    def __init__(self, sql: str, **kwargs):
+    def __init__(self, sql: str, conn_id: str = "default", **kwargs):
         super().__init__(**kwargs)
         self.sql = sql
+        self.conn_id = conn_id
 
     def execute(self, context):
-        self.log.info("Executing Dummy SQL operator for OpenMetadata lineage extraction...")
+        self.log.info("No-op execution for OpenMetadata lineage extraction...")
         return None
 
 with DAG(
@@ -29,7 +30,7 @@ with DAG(
         gold_tbl   = f'medallion_db.default."medallion-demo"."gold/{track}/{track}_gold.parquet"'
 
         # Bronze -> Silver
-        b2s_task = DummySQLOperator(
+        b2s_task = SQLExecuteQueryOperator(
             task_id=f"transform_{track}_bronze_to_silver",
             sql=f"""
                 CREATE TABLE {silver_tbl} AS 
@@ -38,7 +39,7 @@ with DAG(
         )
 
         # Silver -> Gold
-        s2g_task = DummySQLOperator(
+        s2g_task = SQLExecuteQueryOperator(
             task_id=f"transform_{track}_silver_to_gold",
             sql=f"""
                 CREATE TABLE {gold_tbl} AS 
