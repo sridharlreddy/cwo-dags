@@ -1,4 +1,4 @@
-# ~/airflow/dags/medallion_lineage_pipeline.py
+# ~/airflow/dags/medallion_lineage.py
 from datetime import datetime
 from airflow import DAG
 from airflow.operators.python import PythonOperator
@@ -17,7 +17,7 @@ def execute_transform(track, stage):
 with DAG(
     dag_id="medallion_full_lineage_pipeline",
     start_date=datetime(2026, 1, 1),
-    schedule_interval="@daily",
+    schedule="@daily",
     catchup=False,
     tags=["medallion", "openmetadata", "lineage"],
 ) as dag:
