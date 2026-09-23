@@ -2,10 +2,10 @@ from datetime import datetime
 from airflow import DAG
 from airflow.models.baseoperator import BaseOperator
 
-# Custom operator named SQLExecuteQueryOperator that overrides execution to be a no-op
-# while allowing OpenMetadata to extract taskType='SQLExecuteQueryOperator' and taskSQL.
+
 class SQLExecuteQueryOperator(BaseOperator):
-    template_fields = ('sql',)
+    """No-op. SQL is illustrative only; lineage comes from inlets/outlets."""
+    template_fields = ("sql",)
 
     def __init__(self, sql: str, conn_id: str = "default", **kwargs):
         super().__init__(**kwargs)
@@ -13,11 +13,24 @@ class SQLExecuteQueryOperator(BaseOperator):
         self.conn_id = conn_id
 
     def execute(self, context):
-        self.log.info("No-op execution for OpenMetadata lineage extraction...")
+        self.log.info("No-op; lineage declared via inlets/outlets")
         return None
+
+
+# ⚠️ Copy these from the OpenMetadata UI — see the FQN note below.
+SERVICE, DB, SCHEMA = "medallion_db", "default", "medallion-demo"
+
+def tbl(layer: str, track: str) -> str:
+    # Name parts containing dots must be quoted in an OM FQN.
+    return f'{SERVICE}.{DB}.{SCHEMA}."{layer}/{track}/{track}_{layer}.parquet"'
+
+def om(fqn: str, key: str) -> dict:
+    return {"entity": "table", "fqn": fqn, "key": key}
+
 
 with DAG(
     dag_id="medallion_sql_lineage_pipeline",
+    description="Medallion bronze → silver → gold demo with declared lineage",
     start_date=datetime(2026, 1, 1),
     schedule="@daily",
     catchup=False,
@@ -25,26 +38,27 @@ with DAG(
 ) as dag:
 
     for track in ["district", "card", "disp"]:
-        bronze_tbl = f'medallion_db.default."medallion-demo"."bronze/{track}/{track}_bronze.parquet"'
-        silver_tbl = f'medallion_db.default."medallion-demo"."silver/{track}/{track}_silver.parquet"'
-        gold_tbl   = f'medallion_db.default."medallion-demo"."gold/{track}/{track}_gold.parquet"'
+        bronze, silver, gold = tbl("bronze", track), tbl("silver", track), tbl("gold", track)
 
-        # Bronze -> Silver
-        b2s_task = SQLExecuteQueryOperator(
+        b2s_key = f"{track}_bronze_to_silver"   # unique key per edge
+        s2g_key = f"{track}_silver_to_gold"
+
+        b2s = SQLExecuteQueryOperator(
             task_id=f"transform_{track}_bronze_to_silver",
-            sql=f"""
-                CREATE TABLE {silver_tbl} AS 
-                SELECT * FROM {bronze_tbl};
-            """,
+            sql=f"CREATE TABLE {silver} AS SELECT * FROM {bronze};",
+            inlets=[om(bronze, b2s_key)],
+            outlets=[om(silver, b2s_key)],
+            doc_md=f"Promotes `{track}` from bronze to silver.",
+            owner="data-eng",
         )
 
-        # Silver -> Gold
-        s2g_task = SQLExecuteQueryOperator(
+        s2g = SQLExecuteQueryOperator(
             task_id=f"transform_{track}_silver_to_gold",
-            sql=f"""
-                CREATE TABLE {gold_tbl} AS 
-                SELECT * FROM {silver_tbl};
-            """,
+            sql=f"CREATE TABLE {gold} AS SELECT * FROM {silver};",
+            inlets=[om(silver, s2g_key)],
+            outlets=[om(gold, s2g_key)],
+            doc_md=f"Promotes `{track}` from silver to gold.",
+            owner="data-eng",
         )
 
-        b2s_task >> s2g_task
+        b2s >> s2g
