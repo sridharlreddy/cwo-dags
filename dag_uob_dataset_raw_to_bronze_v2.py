@@ -32,16 +32,25 @@ try:
 except ImportError:          # Airflow 2
     from airflow.models import Variable
 
-from airflow_provider_openmetadata.lineage.operator import OpenMetadataLineageOperator
-from metadata.generated.schema.entity.data.container import Container
-from metadata.generated.schema.entity.data.table import Table
-from metadata.generated.schema.entity.services.connections.metadata.openMetadataConnection import (
-    OpenMetadataConnection,
-)
-from metadata.generated.schema.security.client.openMetadataJWTClientConfig import (
-    OpenMetadataJWTClientConfig,
-)
-from metadata.ingestion.source.pipeline.airflow.lineage_parser import OMEntity
+try:
+    from airflow_provider_openmetadata.lineage.operator import OpenMetadataLineageOperator
+    from metadata.generated.schema.entity.data.container import Container
+    from metadata.generated.schema.entity.data.table import Table
+    from metadata.generated.schema.entity.services.connections.metadata.openMetadataConnection import (
+        OpenMetadataConnection,
+    )
+    from metadata.generated.schema.security.client.openMetadataJWTClientConfig import (
+        OpenMetadataJWTClientConfig,
+    )
+    from metadata.ingestion.source.pipeline.airflow.lineage_parser import OMEntity
+    OPENMETADATA_INSTALLED = True
+except ImportError:
+    # Demo fallback for an Airflow without openmetadata-ingestion: the DAG still
+    # imports and shows the same two tasks; lineage_op becomes a no-op placeholder
+    # and the tasks carry no inlets/outlets.
+    from airflow.providers.standard.operators.empty import EmptyOperator
+
+    OPENMETADATA_INSTALLED = False
 
 OPENMETADATA_HOST = "http://54.87.133.180:8585/api"
 PIPELINE_SERVICE = "ETL_airflow"
@@ -66,24 +75,24 @@ ENTITIES = [
     ("risk", "aml_alert"),
 ]
 
-def openmetadata_connection(jwt):
-    return OpenMetadataConnection(
-        hostPort=OPENMETADATA_HOST,
-        authProvider="openmetadata",
-        securityConfig=OpenMetadataJWTClientConfig(jwtToken=jwt),
-    )
+if OPENMETADATA_INSTALLED:
+    def openmetadata_connection(jwt):
+        return OpenMetadataConnection(
+            hostPort=OPENMETADATA_HOST,
+            authProvider="openmetadata",
+            securityConfig=OpenMetadataJWTClientConfig(jwtToken=jwt),
+        )
 
+    class RuntimeTokenLineageOperator(OpenMetadataLineageOperator):
+        """OpenMetadataLineageOperator that reads the JWT when the task runs.
 
-class RuntimeTokenLineageOperator(OpenMetadataLineageOperator):
-    """OpenMetadataLineageOperator that reads the JWT when the task runs.
+        The stock operator needs a full connection (token included) when the DAG is
+        parsed; here it gets a placeholder and the real token is swapped in at execute().
+        """
 
-    The stock operator needs a full connection (token included) when the DAG is
-    parsed; here it gets a placeholder and the real token is swapped in at execute().
-    """
-
-    def execute(self, context):
-        self.server_config = openmetadata_connection(Variable.get("openmetadata_jwt_token_v2"))
-        return super().execute(context)
+        def execute(self, context):
+            self.server_config = openmetadata_connection(Variable.get("openmetadata_jwt_token_v2"))
+            return super().execute(context)
 
 default_args = {
     "owner": "ubuntu",
@@ -116,18 +125,23 @@ with DAG(
             "SPARK_SUBMIT": SPARK_SUBMIT,
         },
         append_env=True,
-        inlets=[OMEntity(entity=Container, fqn=f"{STORAGE_SERVICE}.{STORAGE_SERVICE}.{domain}/{entity}", key=entity)
-                for domain, entity in ENTITIES],
-        outlets=[OMEntity(entity=Table, fqn=f"{BRONZE_FQN}.{entity}", key=entity)
-                 for _, entity in ENTITIES],
+        **({"inlets": [OMEntity(entity=Container, fqn=f"{STORAGE_SERVICE}.{STORAGE_SERVICE}.{domain}/{entity}",
+                                key=entity) for domain, entity in ENTITIES],
+            "outlets": [OMEntity(entity=Table, fqn=f"{BRONZE_FQN}.{entity}", key=entity)
+                        for _, entity in ENTITIES]}
+           if OPENMETADATA_INSTALLED else {}),
     )
 
-    lineage_op = RuntimeTokenLineageOperator(
-        task_id="lineage_op",
-        depends_on_past=False,
-        server_config=openmetadata_connection("set-at-runtime"),
-        service_name=PIPELINE_SERVICE,
-        only_keep_dag_lineage=False,
-    )
+    if OPENMETADATA_INSTALLED:
+        lineage_op = RuntimeTokenLineageOperator(
+            task_id="lineage_op",
+            depends_on_past=False,
+            server_config=openmetadata_connection("set-at-runtime"),
+            service_name=PIPELINE_SERVICE,
+            only_keep_dag_lineage=False,
+        )
+    else:
+        lineage_op = EmptyOperator(task_id="lineage_op")
 
     load_bronze >> lineage_op
+
