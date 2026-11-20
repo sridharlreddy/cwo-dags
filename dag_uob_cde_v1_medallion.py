@@ -22,7 +22,7 @@ from airflow.models.param import Param
 
 from cloudera.cdp.airflow.operators.cde_operator import CDEJobRunOperator
 
-CDE_CONNECTION = "awc-cde"
+CDE_CONNECTION = "awc-cde-spark35"
 
 JOBS = [
     ("load_bronze", "spark-ol-omd-v1-bronze"),
