@@ -42,7 +42,7 @@ with DAG(
     dag_id="uob_cde_v1_medallion",
     description="UOB mock-up: workbook -> bronze -> silver -> gold (CDE jobs, lineage to OpenMetadata)",
     start_date=pendulum.datetime(2026, 11, 1, tz="Asia/Singapore"),
-    schedule=None,
+    schedule="0 8 * * 1",
     catchup=False,
     max_active_runs=1,
     default_args=default_args,
