@@ -25,9 +25,9 @@ from cloudera.cdp.airflow.operators.cde_operator import CDEJobRunOperator
 CDE_CONNECTION = "awc-cde"
 
 JOBS = [
-    ("load_bronze", "uob-cde-v1-load-bronze"),
-    ("bronze_to_silver", "uob-cde-v1-bronze-to-silver"),
-    ("silver_to_gold", "uob-cde-v1-silver-to-gold"),
+    ("load_bronze", "spark-ol-omd-v1-bronze"),
+    ("bronze_to_silver", "spark-ol-omd-v1-silver"),
+    ("silver_to_gold", "spark-ol-omd-v1-gold"),
 ]
 
 DRY_RUN = "{{ 'true' if params.dry_run else 'false' }}"
